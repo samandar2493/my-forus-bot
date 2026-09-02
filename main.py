@@ -6,16 +6,22 @@ import re
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiohttp import web
-from openai import AsyncOpenAI
+import google.generativeai as genai
 
 # Konfiguratsiyalar
 BOT_TOKEN = "8915045293:AAGKXI5Tq3VtiOr7rW9ZIuRlm4_k6J9SslA"
 ADMIN_ID = 6035361698  # Telegram ID raqamingiz
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+# Gemini AI sozlamasi
+if GEMINI_API_KEY:
+  genai.configure(api_key=GEMINI_API_KEY)
+  ai_model = genai.GenerativeModel("gemini-1.5-flash")
+else:
+  ai_model = None
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 AI_ENABLED = False
 sent_messages_map = {}
@@ -74,7 +80,7 @@ async def start_handler(message: types.Message):
     await message.answer(
         "Xush kelibsiz, Admin!\n\n"
         "📊 /stat - Bot statistikasi\n"
-        "🤖 /ai - AI rejimini yoqish/o'chirish\n"
+        "🤖 /ai - Gemini AI rejimini yoqish/o'chirish\n"
         "🗑 /del - Yuborilgan xabarni o'chirish"
     )
   else:
@@ -120,7 +126,7 @@ async def show_stats(message: types.Message):
 async def toggle_ai(message: types.Message):
   global AI_ENABLED
   AI_ENABLED = not AI_ENABLED
-  status = "🟢 Yoqildi" if AI_ENABLED else "🔴 O'chirildi"
+  status = "🟢 Yoqildi (Gemini AI)" if AI_ENABLED else "🔴 O'chirildi"
   await message.answer(f"AI Avto-javob: {status}")
 
 
@@ -158,22 +164,18 @@ async def forward_to_admin(message: types.Message):
   sent_to_admin = await bot.send_message(chat_id=ADMIN_ID, text=text)
 
   if AI_ENABLED and message.text:
-    if not ai_client:
+    if not ai_model:
       await bot.send_message(
           chat_id=ADMIN_ID,
-          text="⚠️ AI API kaliti (OPENAI_API_KEY) kiritilmagan!",
+          text="⚠️ GEMINI_API_KEY Render'ga kiritilmagan!",
       )
       return
 
     try:
-      response = await ai_client.chat.completions.create(
-          model="gpt-4o-mini",
-          messages=[
-              {"role": "system", "content": "Siz yordamchisiz."},
-              {"role": "user", "content": message.text},
-          ],
-      )
-      ai_reply = response.choices[0].message.content
+      # Bepul Gemini AI dan javob olish
+      response = ai_model.generate_content(message.text)
+      ai_reply = response.text
+
       sent_user_msg = await message.answer(ai_reply)
 
       sent_messages_map[sent_to_admin.message_id] = (
@@ -181,9 +183,9 @@ async def forward_to_admin(message: types.Message):
           sent_user_msg.message_id,
       )
     except Exception as e:
-      logging.error(f"AI Error: {e}")
+      logging.error(f"Gemini AI Error: {e}")
       await bot.send_message(
-          chat_id=ADMIN_ID, text=f"⚠️ AI Ishlashida xatolik: {e}"
+          chat_id=ADMIN_ID, text=f"⚠️ Gemini AI Xatolik: {e}"
       )
 
 
