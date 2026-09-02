@@ -11,7 +11,7 @@ import google.generativeai as genai
 # Konfiguratsiyalar
 BOT_TOKEN = "8915045293:AAGKXI5Tq3VtiOr7rW9ZIuRlm4_k6J9SslA"
 ADMIN_ID = 6035361698  # Telegram ID raqamingiz
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = "AQ.Ab8RN6JJ9FE4a7YONBndLL5Ghm30Kxhw27saberZIzqOi39RNQ"  # Shu tirnoqlar ichiga AIzaSy bilan boshlanuvchi kalitingizni yozasiz
 
 # Gemini AI sozlamasi
 if GEMINI_API_KEY:
