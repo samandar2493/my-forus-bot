@@ -8,7 +8,7 @@ from aiogram.filters import Command, CommandStart
 from aiohttp import web
 from openai import AsyncOpenAI
 
-BOT_TOKEN = "8915045293:AAE44Drwj2LtvCcOugkQRGRgjW0bxnjJ5_Y"
+BOT_TOKEN = "8915045293:AAGKXI5Tq3VtiOr7rW9ZIuRlm4_k6J9SslA"
 ADMIN_ID = 6035361698  # O'zingizning Telegram ID raqamingiz
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
