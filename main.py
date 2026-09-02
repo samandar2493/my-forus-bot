@@ -8,8 +8,9 @@ from aiogram.filters import Command, CommandStart
 from aiohttp import web
 from openai import AsyncOpenAI
 
+# Maxfiy ma'lumotlar
 BOT_TOKEN = "8915045293:AAGKXI5Tq3VtiOr7rW9ZIuRlm4_k6J9SslA"
-ADMIN_ID = 6035361698  # O'zingizning Telegram ID raqamingiz
+ADMIN_ID = 6035361698  # Telegram ID raqamingiz
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 bot = Bot(token=BOT_TOKEN)
@@ -18,12 +19,10 @@ ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 AI_ENABLED = False
 sent_messages_map = {}
-
-# Foydalanuvchilarni saqlash uchun JSON fayl yo'li
 USERS_FILE = "users.json"
 
 
-# Foydalanuvchilar ro'yxatini fayldan yuklash
+# Foydalanuvchilar bazasini yuklash
 def load_users():
   if os.path.exists(USERS_FILE):
     try:
@@ -34,16 +33,16 @@ def load_users():
   return {}
 
 
-# Foydalanuvchilar ro'yxatini faylga saqlash
+# Foydalanuvchilar bazasini saqlash
 def save_users(users):
   with open(USERS_FILE, "w") as f:
     json.dump(users, f, ensure_ascii=False, indent=2)
 
 
-# Dastur boshlanganda foydalanuvchilarni yuklaymiz
 users_db = load_users()
 
 
+# Render soxta veb-serveri
 async def handle_ping(request):
   return web.Response(text="Bot faol ishlamoqda!")
 
@@ -58,13 +57,15 @@ async def start_web_server():
   await site.start()
 
 
+# /start buyrug'i
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
   user = message.from_user
   user_id_str = str(user.id)
 
-  # Yangi foydalanuvchini bazaga qo'shish
-  if user_id_str not in users_db:
+  is_new_user = user_id_str not in users_db
+
+  if is_new_user:
     users_db[user_id_str] = {
         "full_name": user.full_name,
         "username": user.username or "Mavjud emas",
@@ -74,26 +75,41 @@ async def start_handler(message: types.Message):
   if user.id == ADMIN_ID:
     await message.answer(
         "Xush kelibsiz, Admin!\n\n"
-        "📊 /stat - Bot statistikasini va foydalanuvchilar sonini ko'rish\n"
+        "📊 /stat - Bot statistikasi va foydalanuvchilar ro'yxati\n"
         "🤖 /ai - AI rejimini yoqish/o'chirish\n"
-        "🗑 /del - Yuborilgan xabarga Reply qilib `/del` yozsangiz,"
-        " foydalanuvchidan ham o'chadi."
+        "🗑 /del - Yuborilgan xabarni 'Reply' qilib o'chirish"
     )
   else:
     await message.answer(
         "Assalomu alaykum! Xabaringizni yozib qoldiring, tez orada javob beramiz."
     )
 
+    # Yangi odam kirsa Adminga xabar yuborish
+    if is_new_user:
+      uname = f"@{user.username}" if user.username else "Mavjud emas"
+      admin_notify_text = (
+          f"👤 **Yangi foydalanuvchi botga kirdi!**\n\n"
+          f"🔹 Ism: {user.full_name}\n"
+          f"🔹 Username: {uname}\n"
+          f"🔹 ID: `{user.id}`"
+      )
+      await bot.send_message(
+          chat_id=ADMIN_ID, text=admin_notify_text, parse_mode="Markdown"
+      )
 
-# Admin uchun Statistika buyrug'i (/stat)
+
+# /stat - Statistika buyrug'i
 @dp.message(F.from_user.id == ADMIN_ID, Command("stat"))
 async def show_stats(message: types.Message):
   total_users = len(users_db)
-  text = f"📊 **Bot Statistikasi:**\n\n" f"👤 Jami foydalanuvchilar: **{total_users} kishi**\n\n"
+  text = (
+      f"📊 **Bot Statistikasi:**\n\n"
+      f"👤 Jami foydalanuvchilar: **{total_users} kishi**\n\n"
+  )
 
   if total_users > 0:
-    text += "📜 **Foydalanuvchilar ro'yxati:**\n"
-    for uid, uinfo in list(users_db.items())[-20:]:  # Oxirgi 20 ta foydalanuvchi
+    text += "📜 **Oxirgi kirganlar ro'yxati:**\n"
+    for uid, uinfo in list(users_db.items())[-20:]:
       uname = (
           f"@{uinfo['username']}"
           if uinfo["username"] != "Mavjud emas"
@@ -104,6 +120,7 @@ async def show_stats(message: types.Message):
   await message.answer(text, parse_mode="Markdown")
 
 
+# /ai - AI rejimini yoqish/o'chirish
 @dp.message(F.from_user.id == ADMIN_ID, Command("ai"))
 async def toggle_ai(message: types.Message):
   global AI_ENABLED
@@ -112,6 +129,7 @@ async def toggle_ai(message: types.Message):
   await message.answer(f"AI Avto-javob: {status}")
 
 
+# /del - Xabarni o'chirish buyrug'i
 @dp.message(F.from_user.id == ADMIN_ID, Command("del"), F.reply_to_message)
 async def delete_sent_message(message: types.Message):
   replied_msg_id = message.reply_to_message.message_id
@@ -132,12 +150,12 @@ async def delete_sent_message(message: types.Message):
     )
 
 
+# Foydalanuvchidan kelgan xabarlarni Adminga yuborish
 @dp.message(F.from_user.id != ADMIN_ID)
 async def forward_to_admin(message: types.Message):
   user = message.from_user
   user_id_str = str(user.id)
 
-  # Agar foydalanuvchi start bosmasdan to'g'ridan-to'g'ri yozgan bo'lsa ham bazaga qo'shish
   if user_id_str not in users_db:
     users_db[user_id_str] = {
         "full_name": user.full_name,
@@ -168,6 +186,7 @@ async def forward_to_admin(message: types.Message):
       logging.error(f"AI error: {e}")
 
 
+# Admin Reply qilganda javobni foydalanuvchiga yuborish
 @dp.message(F.from_user.id == ADMIN_ID, F.reply_to_message)
 async def reply_to_user(message: types.Message):
   try:
