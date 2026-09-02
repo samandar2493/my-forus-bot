@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -9,21 +10,42 @@ from openai import AsyncOpenAI
 
 BOT_TOKEN = "8915045293:AAE44Drwj2LtvCcOugkQRGRgjW0bxnjJ5_Y"
 ADMIN_ID = 6035361698  # O'zingizning Telegram ID raqamingiz
-OPENAI_API_KEY = "5a0015bc7a17302eb916a68a778f51a48047c30dbe01bd4151645bf5049b9676"
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 AI_ENABLED = False
-
-# Xabarlarni o'chirish uchun ID larni saqlaydigan lug'at
-# admin_reply_msg_id -> (user_id, sent_user_msg_id)
 sent_messages_map = {}
+
+# Foydalanuvchilarni saqlash uchun JSON fayl yo'li
+USERS_FILE = "users.json"
+
+
+# Foydalanuvchilar ro'yxatini fayldan yuklash
+def load_users():
+  if os.path.exists(USERS_FILE):
+    try:
+      with open(USERS_FILE, "r") as f:
+        return json.load(f)
+    except Exception:
+      return {}
+  return {}
+
+
+# Foydalanuvchilar ro'yxatini faylga saqlash
+def save_users(users):
+  with open(USERS_FILE, "w") as f:
+    json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+# Dastur boshlanganda foydalanuvchilarni yuklaymiz
+users_db = load_users()
 
 
 async def handle_ping(request):
-  return web.Response(text="Bot faol!")
+  return web.Response(text="Bot faol ishlamoqda!")
 
 
 async def start_web_server():
@@ -38,15 +60,48 @@ async def start_web_server():
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
-  if message.from_user.id == ADMIN_ID:
+  user = message.from_user
+  user_id_str = str(user.id)
+
+  # Yangi foydalanuvchini bazaga qo'shish
+  if user_id_str not in users_db:
+    users_db[user_id_str] = {
+        "full_name": user.full_name,
+        "username": user.username or "Mavjud emas",
+    }
+    save_users(users_db)
+
+  if user.id == ADMIN_ID:
     await message.answer(
         "Xush kelibsiz, Admin!\n\n"
+        "📊 /stat - Bot statistikasini va foydalanuvchilar sonini ko'rish\n"
         "🤖 /ai - AI rejimini yoqish/o'chirish\n"
-        "🗑 /del - Yuborilgan xabarga 'Reply' qilib `/del` deb yozsangiz,"
+        "🗑 /del - Yuborilgan xabarga Reply qilib `/del` yozsangiz,"
         " foydalanuvchidan ham o'chadi."
     )
   else:
-    await message.answer("Assalomu alaykum! Xabaringizni yozib qoldiring.")
+    await message.answer(
+        "Assalomu alaykum! Xabaringizni yozib qoldiring, tez orada javob beramiz."
+    )
+
+
+# Admin uchun Statistika buyrug'i (/stat)
+@dp.message(F.from_user.id == ADMIN_ID, Command("stat"))
+async def show_stats(message: types.Message):
+  total_users = len(users_db)
+  text = f"📊 **Bot Statistikasi:**\n\n" f"👤 Jami foydalanuvchilar: **{total_users} kishi**\n\n"
+
+  if total_users > 0:
+    text += "📜 **Foydalanuvchilar ro'yxati:**\n"
+    for uid, uinfo in list(users_db.items())[-20:]:  # Oxirgi 20 ta foydalanuvchi
+      uname = (
+          f"@{uinfo['username']}"
+          if uinfo["username"] != "Mavjud emas"
+          else "User"
+      )
+      text += f"• {uinfo['full_name']} ({uname}) — ID: `{uid}`\n"
+
+  await message.answer(text, parse_mode="Markdown")
 
 
 @dp.message(F.from_user.id == ADMIN_ID, Command("ai"))
@@ -57,38 +112,39 @@ async def toggle_ai(message: types.Message):
   await message.answer(f"AI Avto-javob: {status}")
 
 
-# Admin yuborgan xabarni o'chirish buyrug'i (/del)
 @dp.message(F.from_user.id == ADMIN_ID, Command("del"), F.reply_to_message)
 async def delete_sent_message(message: types.Message):
   replied_msg_id = message.reply_to_message.message_id
-
   if replied_msg_id in sent_messages_map:
     user_id, user_msg_id = sent_messages_map[replied_msg_id]
     try:
-      # Foydalanuvchining chatidagi xabarni o'chirish
       await bot.delete_message(chat_id=user_id, message_id=user_msg_id)
-
-      # Admin chatidagi xabar va /del buyrug'ini o'chirish
       await bot.delete_message(
           chat_id=ADMIN_ID, message_id=message.reply_to_message.message_id
       )
       await bot.delete_message(chat_id=ADMIN_ID, message_id=message.message_id)
-
       del sent_messages_map[replied_msg_id]
     except Exception as e:
-      await message.answer(
-          f"❌ Xabarni o'chirishda xatolik (balki 48 soatdan o'tib ketgan): {e}"
-      )
+      await message.answer(f"❌ Xabarni o'chirishda xatolik: {e}")
   else:
     await message.answer(
         "❌ Bu xabar o'chiriladigan xabarlar ro'yxatida topilmadi."
     )
 
 
-# Foydalanuvchidan xabar kelganda
 @dp.message(F.from_user.id != ADMIN_ID)
 async def forward_to_admin(message: types.Message):
   user = message.from_user
+  user_id_str = str(user.id)
+
+  # Agar foydalanuvchi start bosmasdan to'g'ridan-to'g'ri yozgan bo'lsa ham bazaga qo'shish
+  if user_id_str not in users_db:
+    users_db[user_id_str] = {
+        "full_name": user.full_name,
+        "username": user.username or "Mavjud emas",
+    }
+    save_users(users_db)
+
   text = f"📩 Yangi xabar!\nIsm: {user.full_name}\nID: {user.id}\n\nXabar: {message.text or '[Media]'}"
   sent_to_admin = await bot.send_message(chat_id=ADMIN_ID, text=text)
 
@@ -104,7 +160,6 @@ async def forward_to_admin(message: types.Message):
       ai_reply = response.choices[0].message.content
       sent_user_msg = await message.answer(ai_reply)
 
-      # AI bergan javobni ham xaritaga saqlaymiz
       sent_messages_map[sent_to_admin.message_id] = (
           message.chat.id,
           sent_user_msg.message_id,
@@ -113,7 +168,6 @@ async def forward_to_admin(message: types.Message):
       logging.error(f"AI error: {e}")
 
 
-# Admin Reply qilib javob yozganda
 @dp.message(F.from_user.id == ADMIN_ID, F.reply_to_message)
 async def reply_to_user(message: types.Message):
   try:
@@ -124,8 +178,6 @@ async def reply_to_user(message: types.Message):
       user_id = int(match.group(1))
       sent_msg = await bot.send_message(chat_id=user_id, text=message.text)
       await message.react([types.ReactionTypeEmoji(emoji="👍")])
-
-      # Admin yuborgan xabar ID sini foydalanuvchidagi ID bilan bog'laymiz
       sent_messages_map[message.message_id] = (user_id, sent_msg.message_id)
     else:
       await message.answer(
